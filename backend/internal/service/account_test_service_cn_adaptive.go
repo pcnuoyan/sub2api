@@ -23,6 +23,10 @@ const accountTestSuppressCompletionContextKey = "account_test_suppress_completio
 // native Responses endpoints. Endpoints the provider profile does not offer are
 // skipped.
 func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	// 模型题只请求首选文本端点，避免同一题在多个兼容协议重复消耗额度。
+	if isAccountModelTest(c) {
+		return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+	}
 	requestedModelID := strings.TrimSpace(modelID)
 	if requestedModelID == "" {
 		requestedModelID = account.providerDefaultTestModel()
@@ -74,6 +78,9 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Co
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create adaptive Anthropic test payload")
 	}
+	if err := applyAccountModelTestPayload(c, payload, APIProtocolAnthropic, testModelID); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过原生 /v1/messages 测试自适应 Anthropic 端点"})
@@ -101,9 +108,9 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Co
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAccountTestBody(ctx, resp.Body)
 		errMsg := fmt.Sprintf("Adaptive Anthropic endpoint returned %d: %s", resp.StatusCode, string(body))
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !isAccountModelTest(c) {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, errMsg)
@@ -117,6 +124,9 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Co
 }
 
 func (s *AccountTestService) processCNProviderAdaptiveAnthropicStream(c *gin.Context, body io.Reader) error {
+	if isAccountModelTest(c) {
+		return s.processAccountModelTestStream(c, body, APIProtocolAnthropic)
+	}
 	reader := bufio.NewReader(body)
 	for {
 		line, err := reader.ReadString('\n')
@@ -170,6 +180,9 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *gin.Co
 	apiURL := buildOpenAIResponsesURLForPlatform(account.Platform, baseURL)
 
 	payload := createOpenAITestPayload(testModelID, false)
+	if err := applyAccountModelTestPayload(c, payload, APIProtocolResponses, testModelID); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	// DeepSeek / Kimi native Responses endpoints are stateless and do not need
 	// the OpenAI probe's synthetic instructions.
 	delete(payload, "instructions")
@@ -196,9 +209,9 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *gin.Co
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAccountTestBody(ctx, resp.Body)
 		errMsg := fmt.Sprintf("Adaptive Responses endpoint returned %d: %s", resp.StatusCode, string(body))
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !isAccountModelTest(c) {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, errMsg)
@@ -259,6 +272,9 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Anthropic test payload")
 	}
+	if err := applyAccountModelTestPayload(c, payload, APIProtocolAnthropic, testModelID); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -286,9 +302,9 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readAccountTestBody(ctx, resp.Body)
 		errMsg := fmt.Sprintf("Anthropic endpoint returned %d: %s", resp.StatusCode, string(body))
-		if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && s.accountRepo != nil {
+		if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && s.accountRepo != nil && !isAccountModelTest(c) {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, errMsg)

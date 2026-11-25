@@ -113,6 +113,7 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+		registerAccountModelTestRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)

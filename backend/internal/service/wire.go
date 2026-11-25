@@ -974,6 +974,7 @@ var ProviderSet = wire.NewSet(
 	ProvideSystemOperationLockService,
 	ProvideIdempotencyCleanupService,
 	ProvideScheduledTestService,
+	ProvideAccountModelTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
 	NewChannelService,
